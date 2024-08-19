@@ -1,0 +1,224 @@
+let gl;
+let program;
+let offsetLocation;
+let zoomLocation;
+let resolutionLocation;
+let iterationsLocation;
+let fractalTypeLocation;
+let colorSchemeLocation;
+let multibrotPowerLocation;
+
+const vertexShaderSource = `
+    attribute vec4 aVertexPosition;
+    void main() {
+        gl_Position = aVertexPosition;
+    }
+`;
+
+const fragmentShaderSource = `
+    precision highp float;
+    uniform vec2 uResolution;
+    uniform vec2 uOffset;
+    uniform float uZoom;
+    uniform int uMaxIterations;
+    uniform int uFractalType;
+    uniform int uColorScheme;
+    uniform float uMultibrotPower;
+
+    vec3 hsv2rgb(vec3 c) {
+        vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+        vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+        return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+    }
+
+    vec2 complexMul(vec2 a, vec2 b) {
+        return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+    }
+
+    vec2 complexPow(vec2 z, float n) {
+        float r = length(z);
+        float theta = atan(z.y, z.x);
+        return pow(r, n) * vec2(cos(n * theta), sin(n * theta));
+    }
+
+    int mandelbrot(vec2 c) {
+        vec2 z = c;
+        for (int i = 0; i < 1000; i++) {
+            if (i >= uMaxIterations) break;
+            if (dot(z, z) > 4.0) return i;
+            z = complexMul(z, z) + c;
+        }
+        return uMaxIterations;
+    }
+
+    int burningShip(vec2 c) {
+        vec2 z = c;
+        for (int i = 0; i < 1000; i++) {
+            if (i >= uMaxIterations) break;
+            if (dot(z, z) > 4.0) return i;
+            z = vec2(z.x * z.x - z.y * z.y, abs(2.0 * z.x * z.y)) + c;
+        }
+        return uMaxIterations;
+    }
+
+    int multibrot(vec2 c) {
+        vec2 z = c;
+        for (int i = 0; i < 1000; i++) {
+            if (i >= uMaxIterations) break;
+            if (dot(z, z) > 4.0) return i;
+            z = complexPow(z, uMultibrotPower) + c;
+        }
+        return uMaxIterations;
+    }
+
+    vec3 mapColor(int iteration) {
+        if (iteration == uMaxIterations) return vec3(0.0);
+        float t = float(iteration) / float(uMaxIterations);
+
+        if (uColorScheme == 0) { // Color
+            return hsv2rgb(vec3(t, 1.0, 1.0));
+        } else if (uColorScheme == 1) { // Grayscale
+            return vec3(t);
+        } else if (uColorScheme == 2) { // Black & White
+            return vec3(float(iteration % 2));
+        } else if (uColorScheme == 3) { // Rainbow
+            return hsv2rgb(vec3(t * 6.0, 1.0, 1.0));
+        }
+        return vec3(0.0);
+    }
+
+    void main() {
+        vec2 uv = gl_FragCoord.xy / uResolution.xy;
+        vec2 c = (uv * 2.0 - 1.0) / uZoom + uOffset;
+
+        int iteration;
+        if (uFractalType == 0) {
+            iteration = mandelbrot(c);
+        } else if (uFractalType == 1) {
+            iteration = burningShip(c);
+        } else if (uFractalType == 2) {
+            iteration = multibrot(c);
+        } else {
+            iteration = mandelbrot(c);
+        }
+
+        gl_FragColor = vec4(mapColor(iteration), 1.0);
+    }
+`;
+
+function initWebGL() {
+    const canvas = document.getElementById('glCanvas');
+    gl = canvas.getContext('webgl');
+    if (!gl) {
+        alert('Unable to initialize WebGL. Your browser may not support it.');
+        return;
+    }
+
+    program = createShaderProgram(vertexShaderSource, fragmentShaderSource);
+    gl.useProgram(program);
+
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    const positions = [-1, -1, 1, -1, -1, 1, 1, 1];
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+    const positionAttributeLocation = gl.getAttribLocation(program, 'aVertexPosition');
+    gl.enableVertexAttribArray(positionAttributeLocation);
+    gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+
+    offsetLocation = gl.getUniformLocation(program, 'uOffset');
+    zoomLocation = gl.getUniformLocation(program, 'uZoom');
+    resolutionLocation = gl.getUniformLocation(program, 'uResolution');
+    iterationsLocation = gl.getUniformLocation(program, 'uMaxIterations');
+    fractalTypeLocation = gl.getUniformLocation(program, 'uFractalType');
+    colorSchemeLocation = gl.getUniformLocation(program, 'uColorScheme');
+    multibrotPowerLocation = gl.getUniformLocation(program, 'uMultibrotPower');
+}
+
+// ... (keep the existing createShaderProgram and loadShader functions)
+
+function drawScene(offset, zoom) {
+    gl.uniform2f(offsetLocation, offset[0], offset[1]);
+    gl.uniform1f(zoomLocation, zoom);
+    gl.uniform2f(resolutionLocation, gl.canvas.width, gl.canvas.height);
+    gl.uniform1i(iterationsLocation, parseInt(document.getElementById('iterations').value));
+    gl.uniform1i(fractalTypeLocation, document.getElementById('fractalType').selectedIndex);
+    gl.uniform1i(colorSchemeLocation, document.getElementById('colorScheme').selectedIndex);
+    gl.uniform1f(multibrotPowerLocation, parseFloat(document.getElementById('multibrotPower').value));
+
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+// ... (keep the existing resizeCanvas function)
+
+let offset = [0, 0];
+let zoom = 1;
+let isDragging = false;
+let lastMousePosition = [0, 0];
+
+// ... (keep the existing mouse event handlers)
+
+function handleWheel(event) {
+    const zoomFactor = parseFloat(document.getElementById('zoomFactor').value);
+    zoom *= event.deltaY < 0 ? zoomFactor : 1 / zoomFactor;
+    drawScene(offset, zoom);
+    event.preventDefault();
+}
+
+function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+        gl.canvas.requestFullscreen().catch(err => console.error(err));
+    } else {
+        document.exitFullscreen();
+    }
+}
+
+function resetView() {
+    offset = [0, 0];
+    zoom = 1;
+    drawScene(offset, zoom);
+}
+
+function toggleControls() {
+    const controls = document.getElementById('controls');
+    const toggleButton = document.getElementById('toggleControls');
+    if (controls.style.display === 'none') {
+        controls.style.display = 'block';
+        toggleButton.textContent = 'Hide Controls';
+    } else {
+        controls.style.display = 'none';
+        toggleButton.textContent = 'Show Controls';
+    }
+}
+
+window.onload = function() {
+    initWebGL();
+    resizeCanvas();
+    drawScene(offset, zoom);
+
+    window.addEventListener('resize', function() {
+        resizeCanvas();
+        drawScene(offset, zoom);
+    });
+
+    gl.canvas.addEventListener('mousedown', handleMouseDown);
+    gl.canvas.addEventListener('mousemove', handleMouseMove);
+    gl.canvas.addEventListener('mouseup', handleMouseUp);
+    gl.canvas.addEventListener('wheel', handleWheel);
+
+    document.getElementById('fullscreenToggle').addEventListener('click', toggleFullscreen);
+    document.getElementById('resetView').addEventListener('click', resetView);
+    document.getElementById('toggleControls').addEventListener('click', toggleControls);
+
+    document.getElementById('iterations').addEventListener('input', () => {
+        document.getElementById('iterationsValue').textContent = document.getElementById('iterations').value;
+        drawScene(offset, zoom);
+    });
+
+    document.getElementById('fractalType').addEventListener('change', () => drawScene(offset, zoom));
+    document.getElementById('colorScheme').addEventListener('change', () => drawScene(offset, zoom));
+    document.getElementById('multibrotPower').addEventListener('input', () => drawScene(offset, zoom));
+};
