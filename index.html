@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fractal Viewer</title>
+    <style>
+        body { margin: 0; }
+        canvas { display: block; }
+        #controls {
+            position: fixed;
+            top: 0;
+            left: 0;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            display: block; /* Initially visible */
+        }
+        #toggleControls {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 10; /* Ensure it's on top */
+        }
+    </style>
+</head>
+<body>
+    <canvas id="fractalCanvas"></canvas>
+    <button id="toggleControls">Hide Controls</button> <!-- New button to toggle menu -->
+    <div id="controls">
+        <label for="fractalType">Fractal Type:</label>
+        <select id="fractalType">
+            <option value="mandelbrot">Mandelbrot</option>
+            <option value="burningShip">Burning Ship</option>
+            <option value="phoenix">Phoenix</option>
+            <option value="multibrot">Multibrot</option>
+            <option value="newton">Newton</option>
+        </select><br>
+
+        <label for="multibrotPower">Multibrot Power:</label>
+        <input type="number" id="multibrotPower" step="0.1" min="1" value="2"><br>
+
+        <label for="iterations">Max Iterations:</label>
+        <input type="number" id="iterations" step="100" min="100" value="1000">
+        <span id="iterationsValue">1000</span><br>
+
+        <label for="colorScheme">Color Scheme:</label>
+        <select id="colorScheme">
+            <option value="color">Color</option>
+            <option value="grayscale">Grayscale</option>
+            <option value="blackwhite">Black & White</option>
+            <option value="rainbow">Rainbow</option>
+        </select><br>
+
+        <label for="zoomFactor">Zoom Factor:</label>
+        <input type="number" id="zoomFactor" step="0.1" min="1" value="10"><br>
+
+        <button id="fullscreenToggle">Toggle Fullscreen</button>
+        <button id="resetView">Reset View</button><br>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('fractalCanvas');
+        const ctx = canvas.getContext('2d');
+        const offscreenCanvas = document.createElement('canvas');
+        const offscreenCtx = offscreenCanvas.getContext('2d');
+
+        let width, height;
+        let minX = -2.5, maxX = 1.5;
+        let minY = -1.5, maxY = 1.5;
+        let maxIterations = 1000;
+        let colorScheme = 'color';
+        let zoomFactor = 10;
+        let cReal = 0;
+        let cImaginary = 0;
+        let fractalType = 'mandelbrot';
+        let updateJulia = false;  // Julia fractal disabled by default
+        let isPaused = false;     // New variable to track pause state
+
+        function resizeCanvas() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            offscreenCanvas.width = width;
+            offscreenCanvas.height = height;
+            drawFractal(); // Redraw fractal after resizing
+        }
+
+        function mandelbrot(x, y) {
+            let zx = x, zy = y;
+            let iteration = 0;
+            while (zx * zx + zy * zy < 4 && iteration < maxIterations) {
+                let xtemp = zx * zx - zy * zy + x;
+                zy = 2 * zx * zy + y;
+                zx = xtemp;
+                iteration++;
+            }
+            return iteration;
+        }
+
+        function julia(x, y) {
+            let zx = x, zy = y;
+            let iteration = 0;
+            while (zx * zx + zy * zy < 4 && iteration < maxIterations) {
+                let xtemp = zx * zx - zy * zy + cReal;
+                zy = 2 * zx * zy + cImaginary;
+                zx = xtemp;
+                iteration++;
+            }
+            return iteration;
+        }
+
+        function burningShip(x, y) {
+            let zx = x, zy = y;
+            let iteration = 0;
+            while (zx * zx + zy * zy < 4 && iteration < maxIterations) {
+                let xtemp = zx * zx - zy * zy + x;
+                zy = Math.abs(2 * zx * zy) + y;
+                zx = xtemp;
+                iteration++;
+            }
+            return iteration;
+        }
+
+        function phoenix(x, y) {
+            let zx = x, zy = y;
+            let iteration = 0;
+            while (zx * zx + zy * zy < 4 && iteration < maxIterations) {
+                let xtemp = zx * zx - zy * zy + x;
+                zy = Math.abs(2 * zx * zy) + y;
+                zx = xtemp;
+                iteration++;
+            }
+            return iteration;
+        }
+
+        function multibrot(x, y, power) {
+            let zx = x, zy = y;
+            let iteration = 0;
+            while (zx * zx + zy * zy < 4 && iteration < maxIterations) {
+                let r = Math.pow(zx * zx + zy * zy, power / 2);
+                let theta = Math.atan2(zy, zx);
+                let xtemp = r * Math.cos(theta * power) + x;
+                zy = r * Math.sin(theta * power) + y;
+                zx = xtemp;
+                iteration++;
+            }
+            return iteration;
+        }
+
+        function newton(x, y) {
+            const maxIterations = 100;
+            const tolerance = 1e-6;
+            let zx = x, zy = y;
+            let iteration = 0;
+            while (iteration < maxIterations) {
+                const r = Math.sqrt(zx * zx + zy * zy);
+                const theta = Math.atan2(zy, zx);
+                const nextZx = zx - (zx * zx - zy * zy - 1) / (2 * zx);
+                const nextZy = zy - (2 * zx * zy) / (2 * zx);
+                if (Math.abs(nextZx - zx) < tolerance && Math.abs(nextZy - zy) < tolerance) {
+                    break;
+                }
+                zx = nextZx;
+                zy = nextZy;
+                iteration++;
+            }
+            return iteration;
+        }
+
+        function mapColor(iteration) {
+            const colorScale = 255;
+            if (iteration === maxIterations) return `rgb(0, 0, 0)`; // Black for points inside the set
+
+            const ratio = iteration / maxIterations;
+            if (colorScheme === 'grayscale') {
+                const gray = Math.floor(ratio * 255);
+                return `rgb(${gray}, ${gray}, ${gray})`;
+            } else if (colorScheme === 'blackwhite') {
+                return iteration % 2 === 0 ? 'rgb(255, 255, 255)' : 'rgb(0, 0, 0)';
+            } else if (colorScheme === 'rainbow') {
+                const hue = Math.floor(360 * ratio);
+                const rgb = hslToRgb(hue, 1, 0.5); // Full saturation, lightness = 0.5
+                return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+            } else {
+                // Color mode
+                const r = Math.floor(9 * (1 - ratio) * ratio * ratio * ratio * colorScale);
+                const g = Math.floor(15 * (1 - ratio) * (1 - ratio) * ratio * ratio * colorScale);
+                const b = Math.floor(8.5 * (1 - ratio) * ratio * colorScale);
+                return `rgb(${r}, ${g}, ${b})`;
+            }
+        }
+
+        function hslToRgb(h, s, l) {
+            h = h % 360;
+            const c = (1 - Math.abs(2 * l - 1)) * s;
+            const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+            const m = l - c / 2;
+            let r, g, b;
+
+            if (0 <= h && h < 60) {
+                [r, g, b] = [c, x, 0];
+            } else if (60 <= h && h < 120) {
+                [r, g, b] = [x, c, 0];
+            } else if (120 <= h && h < 180) {
+                [r, g, b] = [0, c, x];
+            } else if (180 <= h && h < 240) {
+                [r, g, b] = [0, x, c];
+            } else if (240 <= h && h < 300) {
+                [r, g, b] = [x, 0, c];
+            } else if (300 <= h && h < 360) {
+                [r, g, b] = [c, 0, x];
+            }
+
+            return [Math.floor((r + m) * 255), Math.floor((g + m) * 255), Math.floor((b + m) * 255)];
+        }
+
+        function drawFractal() {
+            if (isPaused) return; // Skip drawing if paused
+
+            const imageData = offscreenCtx.createImageData(width, height);
+            const data = imageData.data;
+            for (let x = 0; x < width; x++) {
+                for (let y = 0; y < height; y++) {
+                    const scaledX = minX + (x / width) * (maxX - minX);
+                    const scaledY = minY + (y / height) * (maxY - minY);
+                    let iteration;
+                    switch (fractalType) {
+                        case 'mandelbrot':
+                            iteration = mandelbrot(scaledX, scaledY);
+                            break;
+                        case 'burningShip':
+                            iteration = burningShip(scaledX, scaledY);
+                            break;
+                        case 'phoenix':
+                            iteration = phoenix(scaledX, scaledY);
+                            break;
+                        case 'multibrot':
+                            const power = parseFloat(document.getElementById('multibrotPower').value);
+                            iteration = multibrot(scaledX, scaledY, power);
+                            break;
+                        case 'newton':
+                            iteration = newton(scaledX, scaledY);
+                            break;
+                        case 'julia':
+                            if (updateJulia) {
+                                iteration = julia(scaledX, scaledY);
+                            } else {
+                                iteration = mandelbrot(scaledX, scaledY); // Default to Mandelbrot if Julia is disabled
+                            }
+                            break;
+                        default:
+                            iteration = mandelbrot(scaledX, scaledY);
+                    }
+                    const [r, g, b] = mapColor(iteration).match(/\d+/g).map(Number);
+                    const index = (y * width + x) * 4;
+                    data[index] = r;
+                    data[index + 1] = g;
+                    data[index + 2] = b;
+                    data[index + 3] = 255; // Alpha
+                }
+            }
+            offscreenCtx.putImageData(imageData, 0, 0);
+            ctx.drawImage(offscreenCanvas, 0, 0);
+        }
+
+        function zoom(e) {
+            e.preventDefault();
+            const mouseX = e.clientX;
+            const mouseY = e.clientY;
+            const scaleX = (mouseX / width) * (maxX - minX) + minX;
+            const scaleY = (mouseY / height) * (maxY - minY) + minY;
+
+            if (e.deltaY < 0) {
+                minX = scaleX + (minX - scaleX) / zoomFactor;
+                maxX = scaleX + (maxX - scaleX) / zoomFactor;
+                minY = scaleY + (minY - scaleY) / zoomFactor;
+                maxY = scaleY + (maxY - scaleY) / zoomFactor;
+            } else {
+                minX = scaleX + (minX - scaleX) * zoomFactor;
+                maxX = scaleX + (maxX - scaleX) * zoomFactor;
+                minY = scaleY + (minY - scaleY) * zoomFactor;
+                maxY = scaleY + (maxY - scaleY) * zoomFactor;
+            }
+
+            drawFractal();
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                canvas.requestFullscreen().catch(err => console.error(err));
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function resetView() {
+            minX = -2.5;
+            maxX = 1.5;
+            minY = -1.5;
+            maxY = 1.5;
+            drawFractal();
+        }
+
+        function updateJuliaParameters(mouseX, mouseY) {
+            cReal = (mouseX / width) * (maxX - minX) + minX;
+            cImaginary = (mouseY / height) * (maxY - minY) + minY;
+            drawFractal();
+        }
+
+        function toggleJuliaUpdate() {
+            updateJulia = !updateJulia;
+        }
+
+        function togglePause() {
+            isPaused = !isPaused;
+            if (!isPaused) {
+                drawFractal(); // Redraw the fractal when unpaused
+            }
+        }
+
+        function toggleControls() {
+            const controls = document.getElementById('controls');
+            const toggleButton = document.getElementById('toggleControls');
+            if (controls.style.display === 'none') {
+                controls.style.display = 'block';
+                toggleButton.textContent = 'Hide Controls';
+            } else {
+                controls.style.display = 'none';
+                toggleButton.textContent = 'Show Controls';
+            }
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        canvas.addEventListener('wheel', zoom);
+        canvas.addEventListener('mousemove', (e) => {
+            if (fractalType === 'julia' && updateJulia) {
+                updateJuliaParameters(e.clientX, e.clientY);
+            }
+        });
+
+        document.getElementById('fullscreenToggle').addEventListener('click', toggleFullscreen);
+        document.getElementById('resetView').addEventListener('click', resetView);
+
+        document.getElementById('iterations').addEventListener('input', () => {
+            maxIterations = parseInt(document.getElementById('iterations').value, 10);
+            document.getElementById('iterationsValue').textContent = maxIterations;
+            drawFractal();
+        });
+
+        document.getElementById('colorScheme').addEventListener('change', (event) => {
+            colorScheme = event.target.value;
+            drawFractal();
+        });
+
+        document.getElementById('zoomFactor').addEventListener('input', () => {
+            zoomFactor = parseFloat(document.getElementById('zoomFactor').value);
+        });
+
+        document.getElementById('fractalType').addEventListener('change', (event) => {
+            fractalType = event.target.value;
+            if (fractalType === 'julia' && updateJulia) {
+                updateJuliaParameters(canvas.width / 2, canvas.height / 2); // Center initial Julia parameters
+            } else {
+                drawFractal();
+            }
+        });
+
+        document.getElementById('toggleControls').addEventListener('click', toggleControls); // Add event listener for toggle button
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'j') {
+                toggleJuliaUpdate();
+                fractalType = updateJulia ? 'julia' : document.getElementById('fractalType').value;
+                drawFractal();
+            } else if (e.key === 'f') {
+                togglePause();
+            }
+        });
+
+        resizeCanvas();
+        drawFractal();
+    </script>
+</body>
+</html>
